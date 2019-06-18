@@ -301,33 +301,67 @@ class GraphScatteringTransform:
         
     def computeTransform(self, x):
         # Check the dimension of x: batchSize x numberFeatures x numberNodes
-        assert len(x.shape) == 3
+        if len(x.shape)==2:
+            x = np.expand_dims(x,0)
+        if len(x.shape) == 1: # array of sparse arrays.
+            spflag = True
+            B = x.shape[0] # batchSize
+            dims = x[0].shape
+            F = dims[0] # numberFeatures
+            assert all([batch.shape == (F, self.N) for batch in x])
+        else:
+            assert len(x.shape) == 3
+            spflag = False
+            F = x.shape[1] # numberFeatures
+            assert x.shape[2] == self.N
         B = x.shape[0] # batchSize
-        F = x.shape[1] # numberFeatures
-        assert x.shape[2] == self.N
         # Start creating the output
         #   Add the dimensions for B and F in low-pass operator U
-        U = self.U.reshape([1, self.N, 1]) # 1 x N x 1
+        if spflag:
+            rhoHx = np.expand_dims(x,1)
+        if B == 1: #one batch
+            if spflag:
+                x = x[0]
+            else:
+                x = x.reshape([F,self.N])
+            rhoHx = np.expand_dims(x,0)[:,np.newaxis]
+        U = self.U.reshape([self.N,1])
         #   Compute the first coefficient
-        Phi = x @ U # B x F x 1
-        rhoHx = x.reshape(B, 1, F, self.N) # B x 1 x F x N
+        Phi = np.ndarray([B,F,1])
+        if spflag:
+            for b in range(B):
+                Phi[b] = (rhoHx[b,0] @ U) # B x F x 1
         # Reshape U once again, because from now on, it will have to multiply
         # J elements (we want it to be 1 x J x N x 1)
-        U = U.reshape(1, 1, self.N, 1) # 1 x 1 x N x 1
-        U = np.tile(U, [1, self.J, 1, 1])
         # Now, we move to the rest of the layers
         for l in range(1,self.L): # l = 1,2,...,L
-            nextRhoHx = np.empty([B, 0, F, self.N])
+            if spflag:
+                nextRhoHx = np.empty([B, 0],dtype=object)
+            elif B==1:
+                nextRhoHx = np.empty([0, F, self.N])
+            else:
+                nextRhoHx = np.empty([B, 0, F, self.N])
+        
             for j in range(self.J ** (l-1)): # j = 0,...,l-1
-                thisX = rhoHx[:,j,:,:] # B x J x F x N
-                thisHx = thisX.reshape(B, 1, F, self.N) \
-                            @ self.H.reshape(1, self.J, self.N, self.N)
+                phi_j = np.empty([B,self.J,F])
+                if spflag:
+                    thisHx = np.ndarray([B,self.J],dtype=object)
+                    for b in range(B):
+                        thisX = rhoHx[b,j] #F x N
+                        for jj in range(self.J):
+                            thisHx[b,jj] = np.abs(thisX@self.H[jj,:,:])
+                            phi_j[b,jj,:] = (thisHx[b,jj]@U).squeeze()
+
+                else:
+                    thisHx = np.ndarray([B,self.J,F,self.N])
+                    for b in range(B):
+                        thisX = rhoHx[b,j,:,:]
+                        for jj in range(self.J):
+                            thisHx[b,jj,:,:] = np.abs(thisX@self.H[jj,:,:])
+                            phi_j[b,jj,:] = (thisHx[b,jj]@U).squeeze()
                     # B x J x F x N
-                thisRhoHx = np.abs(thisHx) # B x J x F x N
-                nextRhoHx = np.concatenate((nextRhoHx, thisRhoHx), axis = 1)
+                nextRhoHx = np.concatenate((nextRhoHx, thisHx), axis = 1)
                 
-                phi_j = thisRhoHx @ U # B x J x F x 1
-                phi_j = phi_j.squeeze(3) # B x J x F
                 phi_j = phi_j.transpose(0, 2, 1) # B x F x J
                 Phi = np.concatenate((Phi, phi_j), axis = 2) # Keeps adding the
                     # coefficients
