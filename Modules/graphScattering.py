@@ -575,7 +575,3 @@ class GraphScattering(nn.Module):
             x = torch.abs(self.conv_unit.forward(x))
             i+=1
             return torch.cat((y,self.forward(x,i,nin)),dim=0)
-
-
-net = GraphScattering(DS.U,DS.H, 3,3)
-print(net)
