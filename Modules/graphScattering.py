@@ -534,3 +534,48 @@ class TightHann(GraphScatteringTransform):
         self.U = (1/self.N) * np.ones(self.N)
         # Construct wavelets
         self.H = tightHannWavelet(self.V, self.E, self.J, R, eMax, doWarping)
+        
+        
+import torch
+import torch.nn as nn
+
+class gPool(nn.Module):
+    def __init__(self,avg):
+        super(gPool, self).__init__()
+        self.weight = nn.Parameter(torch.tensor(avg,device=device,dtype=dtype))
+        self.weight.require_grad = False #may not be required
+
+    def forward(self, x):
+        return torch.matmul(x,self.weight)
+    
+class gConv(nn.Module):
+    def __init__(self,kernel):
+        super(gConv, self).__init__()
+        self.weight = nn.Parameter(torch.tensor(kernel,device=device,dtype=dtype).unsqueeze(0))
+        self.weight.require_grad = False #may not be required
+    def forward(self, x):
+        return torch.matmul(x,self.weight).transpose(1,0)
+    
+class GraphScattering(nn.Module):
+
+    def __init__(self, U, H, nscales, nlayers):
+        super(GraphScattering, self).__init__()
+        self.avg_op = gPool(U)
+        self.conv_unit = gConv(H)
+        self.nlayers = nlayers
+        
+    def forward(self, x, i=1,nin = 0):
+        if i==1:
+            if len(x.shape)==1: nin = 1
+            else: nin = x.shape[0]
+        y = self.avg_op(x).reshape(-1,nin)
+        if i == self.nlayers:
+            return y
+        else:
+            x = torch.abs(self.conv_unit.forward(x))
+            i+=1
+            return torch.cat((y,self.forward(x,i,nin)),dim=0)
+
+
+net = GraphScattering(DS.U,DS.H, 3,3)
+print(net)
