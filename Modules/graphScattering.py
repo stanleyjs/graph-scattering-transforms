@@ -335,6 +335,7 @@ class GraphScatteringTransform:
         # J elements (we want it to be 1 x J x N x 1)
         # Now, we move to the rest of the layers
         for l in range(1,self.L): # l = 1,2,...,L
+            print(l)
             if spflag:
                 nextRhoHx = np.empty([B, 0],dtype=object)
             elif B==1:
